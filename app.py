@@ -1,11 +1,8 @@
 import os
-# Force pure-Python protobuf to stop the 3.14 cloud environment crash
-os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-
 import streamlit as st
 import tempfile
 from dotenv import load_dotenv
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -99,15 +96,16 @@ st.markdown("""
 st.title("DocMind AI")
 st.markdown('<p class="tagline">🪐 Conversational Document Intelligence Active (Broadcasting from Jupiter).</p>', unsafe_allow_html=True)
 
-DB_DIR = "chroma_db"
-
+# --- CACHED EMBEDDINGS MODEL ---
 @st.cache_resource
-def get_vector_store():
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    return Chroma(persist_directory=DB_DIR, embedding_function=embeddings)
+def get_embeddings():
+    return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-vector_store = get_vector_store()
+embeddings_model = get_embeddings()
 
+# Initialize session state tracking
+if "vector_store" not in st.session_state:
+    st.session_state.vector_store = None
 if "current_chunks" not in st.session_state:
     st.session_state.current_chunks = []
 if "viva_questions" not in st.session_state:
@@ -134,7 +132,8 @@ with st.sidebar:
                     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                     chunks = text_splitter.split_documents(docs)
                     
-                    vector_store.add_documents(chunks)
+                    # Create an in-memory FAISS database instance instantly
+                    st.session_state.vector_store = FAISS.from_documents(chunks, embeddings_model)
                     st.session_state.current_chunks = [c.page_content for c in chunks]
                     st.session_state.viva_questions = None
                     st.success(f"📦 Document Loaded Successfully!")
@@ -239,8 +238,12 @@ if user_input := st.chat_input("Ask DocMind AI anything about your saved notes..
                 if not history_str:
                     history_str = "No prior exchanges in current active tracking queue."
 
-                docs = vector_store.similarity_search(user_input, k=3)
-                context = "\n\n".join([doc.page_content for doc in docs])
+                # Pull context matches from the dynamic FAISS memory instance
+                if st.session_state.vector_store is not None:
+                    docs = st.session_state.vector_store.similarity_search(user_input, k=3)
+                    context = "\n\n".join([doc.page_content for doc in docs])
+                else:
+                    context = "No structural document loaded into memory banks yet."
                 
                 formatted_prompt = system_prompt.format(
                     chat_history=history_str, 

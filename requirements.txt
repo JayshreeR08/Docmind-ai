@@ -1,0 +1,10 @@
+langchain
+langchain-community
+langchain-chroma
+pypdf
+streamlit
+python-dotenv
+langchain-openai
+python-dotenv
+langchain-google-genai
+pymupdf
